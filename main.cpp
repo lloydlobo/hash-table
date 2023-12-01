@@ -26,7 +26,14 @@ struct HashTable {
         if (m_table[index] == nullptr) {
             m_table[index] = entry;
         } else {
-            //
+            Entry* cur = m_table[index];
+
+            while (cur != nullptr) {
+                if (cur->key == key) {
+                    cur->val = val;
+                }
+                cur = cur->next;
+            }
         }
     }
 
@@ -72,6 +79,7 @@ int main() {
     ht.insert("puppy", 5);
     ht.insert("kitty", 8);
     ht.insert("birdy", 12);
+    ht.insert("puppy", 7);
 
     // Retrieve values
     std::cout << "Count of puppy': " << ht.get("puppy") << std::endl;
