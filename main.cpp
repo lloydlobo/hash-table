@@ -9,38 +9,24 @@
 #include <vector>
 
 struct HashTable {
-    HashTable(size_t size) : m_size(size), m_table(m_size) {}
+    explicit HashTable(size_t size) : m_size(size), m_table(m_size) {}
 
-    ~HashTable() {
-        for (auto &entry : m_table) {
-            while (entry != nullptr) {
-                auto tmp = std::move(entry);
-                entry = std::move(tmp->next);
-            }
-        }
-    }
+    ~HashTable() = default;  // The default destructor
 
+    // Insert via 'linear probing' instead of 'chaining' collision strategy.
     void insert(const char *key, const int val) {
-        uint64_t index = djb2_hash(key);
-        auto entry = std::make_unique<Entry>(key, val);
-        // Key not found, insert new entry
-        if (m_table[index] == nullptr) {
-            m_table[index] = std::move(entry);
-            return;
-        }
-        auto cur = m_table[index].get();
-        while (cur != nullptr) {
-            if (std::strcmp(cur->key, key) == 0) {
-                cur->val = val;
-                return;
-            }
-            if (cur->next == nullptr) break;
-            cur = cur->next.get();
-        }
+        uint64_t index = fnv1a_hash(key);
+        auto entry = std::make_shared<Entry>(key, val);
+        index = linear_probe(key, index);
+        if (m_table[index] == nullptr)  // Key not found, insert new entry
+            m_table[index] = entry;     // Insert success
+        else
+            m_table[index]->val = val;  // Update success
     }
 
     std::optional<int> get(const char *key) {
-        auto cur_entry = m_table[djb2_hash(key)].get();
+        uint64_t index = fnv1a_hash(key);
+        auto cur_entry = m_table[index].get();
         while (cur_entry != nullptr) {
             if (std::strcmp(cur_entry->key, key) == 0) return cur_entry->val;
             cur_entry = cur_entry->next.get();
@@ -49,55 +35,71 @@ struct HashTable {
     }
 
    private:
-    // `djb2` Bernstein hash function updates the hash value using the formula
-    // `(hash << 5) + hash + *key`. It iterates through each character,
+    // FNV-1a hash algorithm used for better distribution than `djb2`.
+    uint64_t fnv1a_hash(const char *key) {
+        uint64_t hash = 14695981039346656037ull;
+        while (*key != '\0') {
+            hash ^= static_cast<uint64_t>(*key);
+            hash *= 1099511628211ul;
+            key += 1;
+        }
+        return (hash % m_size);
+    }
+
+    // `djb2` Bernstein hash function updates the hash value using the
+    // formula `(hash << 5) + hash + *key`. It iterates through each character,
     // left-shifting the current hash by 5 bits and adding the ASCII value.
     uint64_t djb2_hash(const char *key) {
         uint64_t hash = 5381;
         while (*key != '\0') {
-            hash = (((hash << 5) + hash) + *key);  // hash * 33 + c;
-            key++;
+            hash = (((hash << 5) + hash) + *key++);  // hash * 33 + c;
         }
         return (hash % m_size);
+    }
+
+    uint64_t linear_probe(const char *key, uint64_t index) {
+        auto step = 1;
+        while (m_table[index] != nullptr) {
+            if (std::strcmp(m_table[index]->key, key) == 0)
+                return index;                   // Key already exists
+            index = ((index + step) % m_size);  // Move to the next slot
+        }
+        return index;
     }
 
     struct Entry {
         const char *key;
         int val;
-        std::unique_ptr<Entry> next;
+        std::shared_ptr<Entry> next;
 
-        Entry(const char *k, int v) : key(k), val(v), next(nullptr) {}
+        explicit Entry(const char *k, int v) : key(k), val(v), next(nullptr) {}
     };
+
+    // members:
+
     const size_t m_size;
-    std::vector<std::unique_ptr<Entry>> m_table;
+    std::vector<std::shared_ptr<Entry>> m_table;
 };
 
 void print_result(const char *key, std::optional<int> result) {
     if (result.has_value())
-        std::cout << "Count of " << key << ": " << result.value() << std::endl;
+        std::cout << "Count of " << key << ": " << result.value() << '\n';
     else
-        std::cout << "Key '" << key << "' not found" << std::endl;
+        std::cout << "Key '" << key << "' not found" << '\n';
 }
 
 int main() {
-    std::vector<std::pair<const char *, int>> keyval_pairs = {
-        {"puppy", 5},
-        {"kitty", 8},
-        {"horsie", 12},
-    };
+    constexpr size_t table_size = 100;
+    std::vector<std::pair<const char *, int>> keyval_pairs;
+    HashTable ht(table_size);  // Initialize the hash table
+    keyval_pairs = {{"puppy", 5}, {"kitty", 8}, {"horsie", 12}};
 
-    // Initialize the hash table
-    HashTable ht(100);
-
-    // Insert some key-value pairs
-    for (const auto &kv : keyval_pairs) ht.insert(kv.first, kv.second);
-
+    for (const auto &kv : keyval_pairs)  // Insert some key-value pairs
+        ht.insert(kv.first, kv.second);
     ht.insert("puppy", 7);  // Update a key
 
-    // Retrieve values
-    for (const auto &kv : keyval_pairs)
+    for (const auto &kv : keyval_pairs)  // Retrieve values
         print_result(kv.first, ht.get(kv.first));
-
     print_result("wolfie", ht.get("wolfie"));  // Key 'wolfie' not found
 
     return 0;
