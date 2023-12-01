@@ -5,6 +5,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <vector>
 
 struct HashTable {
@@ -22,34 +23,29 @@ struct HashTable {
     void insert(const char *key, const int val) {
         uint64_t index = djb2_hash(key);
         auto entry = std::make_unique<Entry>(key, val);
-
         // Key not found, insert new entry
         if (m_table[index] == nullptr) {
             m_table[index] = std::move(entry);
             return;
         }
-
         auto cur = m_table[index].get();
-
         while (cur != nullptr) {
             if (std::strcmp(cur->key, key) == 0) {
                 cur->val = val;
                 return;
             }
             if (cur->next == nullptr) break;
-
             cur = cur->next.get();
         }
     }
 
-    int get(const char *key) {
+    std::optional<int> get(const char *key) {
         auto cur_entry = m_table[djb2_hash(key)].get();
-
         while (cur_entry != nullptr) {
             if (std::strcmp(cur_entry->key, key) == 0) return cur_entry->val;
             cur_entry = cur_entry->next.get();
         }
-        return -1;  // Key not found
+        return std::nullopt;  // Key not found
     }
 
    private:
@@ -76,23 +72,33 @@ struct HashTable {
     std::vector<std::unique_ptr<Entry>> m_table;
 };
 
+void print_result(const char *key, std::optional<int> result) {
+    if (result.has_value())
+        std::cout << "Count of " << key << ": " << result.value() << std::endl;
+    else
+        std::cout << "Key '" << key << "' not found" << std::endl;
+}
+
 int main() {
-    const char *const keys[3] = {"puppy", "kitty", "horsie"};
-    const int values[3] = {5, 8, 12};
+    std::vector<std::pair<const char *, int>> keyval_pairs = {
+        {"puppy", 5},
+        {"kitty", 8},
+        {"horsie", 12},
+    };
 
     // Initialize the hash table
     HashTable ht(100);
 
     // Insert some key-value pairs
-    for (size_t i = 0; i < 3; i += 1) ht.insert(keys[i], values[i]);
+    for (const auto &kv : keyval_pairs) ht.insert(kv.first, kv.second);
 
     ht.insert("puppy", 7);  // Update a key
 
     // Retrieve values
-    std::cout << "Count of puppy': " << ht.get("puppy") << std::endl;
-    std::cout << "Count of kitty': " << ht.get("kitty") << std::endl;
-    std::cout << "Count of wolfie': " << ht.get("wolfie")
-              << std::endl;  // Should print -1
+    for (const auto &kv : keyval_pairs)
+        print_result(kv.first, ht.get(kv.first));
+
+    print_result("wolfie", ht.get("wolfie"));  // Key 'wolfie' not found
 
     return 0;
 }
