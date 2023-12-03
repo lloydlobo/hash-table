@@ -1,14 +1,51 @@
 # main.py
 
 import hashlib
+import sys
 from enum import Enum
+from itertools import cycle
 from sys import exit
-from typing import List
+
+from faker import Faker
 
 
-class HashTable:
-    # data structures:
+class HTHash:
+    @staticmethod
+    def jenkins_hash(key: str) -> int:
+        """A non-cryptographic hash function designed for good distribution"""
+        h_val: int = 0
+        for c in key:
+            h_val += ord(c)
+            h_val += (h_val << 10)
+            h_val ^= (h_val >> 6)
+        h_val += (h_val << 3)
+        h_val ^= (h_val >> 11)
+        h_val += (h_val << 15)
+        return int(h_val)
 
+    @staticmethod
+    def md5_hash(key: str) -> int:
+        """MD5 (Message Digest Algorithm 5)"""
+        md5 = hashlib.md5()
+        md5.update(key.encode('utf-8'))
+        return int((md5.hexdigest()), 16)
+
+    @staticmethod
+    def simple_hash(key: str) -> int:
+        h_val = 0
+        for c in key:  # Convert character to Unicode code point
+            h_val += ord(c)
+        return h_val
+
+    @staticmethod
+    def sha265_hash(key: str) -> int:
+        """SHA-256 (Secure Hash Algorithm 256-bit)"""
+        sha256 = hashlib.sha256()
+        sha256.update(key.encode('utf-8'))
+        return int((sha256.hexdigest()), 16)
+
+
+class HashTable(HTHash):
     class FmtEntry(Enum):
         NODE, TREE = 'NODE', 'TREE'
 
@@ -26,132 +63,97 @@ class HashTable:
     LOAD_CAPACITY_THRESHOLD: float = 0.7
 
     def __init__(self, capacity: int = DEFAULT_CAPACITY) -> None:
-        """
-        @usage:
-            `ht = HashTable()`
-            `ht = HashTable(HashTable.DEFAULT_CAPACITY)`
-
-        :type capacity: int
-        :rtype: None
-        :param capacity: Capacity of hash table.
-            (Default: 16 or `HashTable.DEFAULT_CAPACITY`)
-        """
         self.__m_cap = capacity
         self.__m_size = 0
         self.__m_table = ([None] * capacity)
 
     def clear(self) -> None:
         cur: HashTable.Entry | None
-        tmp: HashTable.Entry | None
-
+        # Detach current entry from the linked list
+        # Move to the next entry in the linked list
         for i in range(self.__m_cap):
             cur = self.__m_table[i]
             while cur is not None:
-                tmp = cur.m_next
-                cur.m_next = None  # Detach current entry from the linked list
-                cur = tmp  # Move to the next entry in the linked list
-                self.__m_size -= 1  # Decrement the size for each entry
-            # Set the slot to None after clearing current linked list
-            self.__m_table[i] = None
+                cur.m_next, cur = None, cur.m_next
+                self.__m_size -= 1
+            self.__m_table[i] = None  # Reset after clearing current linked list
         assert (self.__m_size == 0 and 'Should visit and clear all entry nodes')
 
     def get(self, key: str) -> Entry | None:
         cur: HashTable.Entry | None
-
-        index = self.__jenkins_hash(key)
+        index = self.hash_key_to_index(key)
         cur = self.__m_table[index]
-
         while cur is not None:
             if cur.m_key == key:
                 return cur
             cur = cur.m_next
 
+    def hash_key_to_index(self, key):
+        index = HTHash.jenkins_hash(key)
+        return int(index % self.__m_cap)
+
     def insert(self, key: str, val: str) -> None:
-        entry: HashTable.Entry
-        cur: HashTable.Entry | None
-
-        if self.__m_size >= self.__m_cap:
+        if self.__m_size >= (self.__m_cap * self.LOAD_CAPACITY_THRESHOLD):
+            self.__resize()
+        index = self.hash_key_to_index(key)
+        if index > self.__m_cap:
+            print("Index outside available range", file=sys.stderr)
             return
-
-        index = self.__jenkins_hash(key)
-        entry = self.Entry(key=key, val=val)
+        entry: HashTable.Entry = self.Entry(key=key, val=val)
         if self.__m_table[index] is None:
             self.__m_table[index] = entry  # Insert new entry
             self.__m_size += 1
             return
-
-        cur = self.__m_table[index]
+        cur: HashTable.Entry | None = self.__m_table[index]
         while cur is not None:
             if cur.m_key == key:  # Update existing key's value
                 self.__m_table[index].m_val = entry.m_val
-                break
+                return
             elif cur.m_next is None:  # Avoid collision and add to linked list
                 self.__m_table[index].m_next = entry
                 self.__m_size += 1
-                break
+                return
             cur = cur.m_next
 
     def capacity(self) -> int:
         return self.__m_cap
 
+    def dbg_visit_all(self, fmt: FmtEntry = FmtEntry.TREE) -> None:
+        print(fmt, self.__class__)
+        for e in self.__m_table:
+            HTPrinter.print_entry(e, fmt)
+
     def describe(self) -> None:
-        Printer.print_table_info(self, self.__m_table)
+        HTPrinter.describe(self, self.__m_table)
 
     def is_empty(self) -> bool:
         cur: HashTable.Entry | None
-        # for cur in self.__m_table: if cur is not None: return False
-        # return True
         return all(cur is None for cur in self.__m_table)
 
     def size(self) -> int:
         return self.__m_size
 
-    def dbg_visit_all(self, fmt: FmtEntry = FmtEntry.TREE) -> None:
-        print(fmt, self.__class__)
-        for e in self.__m_table:
-            Printer.print_entry(e, fmt)
-
-    # private:
-
-    def __jenkins_hash(self, key: str) -> int:
-        """A non-cryptographic hash function designed for good distribution"""
-        h_val: int = 0
-        for c in key:
-            h_val += ord(c)
-            h_val += (h_val << 10)
-            h_val ^= (h_val >> 6)
-        h_val += (h_val << 3)
-        h_val ^= (h_val >> 11)
-        h_val += (h_val << 15)
-        return h_val % self.__m_cap
-
-    def __simple_hash(self, key: str) -> int:
-        h_val = 0
-        for c in key:  # Convert character to Unicode code point
-            h_val += ord(c)
-        return h_val % self.__m_cap
-
-    def __sha265_hash(self, key: str) -> int:
-        """SHA-256 (Secure Hash Algorithm 256-bit)"""
-        sha256 = hashlib.sha256()
-        sha256.update(key.encode('utf-8'))
-        return int((sha256.hexdigest()), 16) % self.__m_cap
-
-    def __md5_hash(self, key: str) -> int:
-        """MD5 (Message Digest Algorithm 5)"""
-        md5 = hashlib.md5()
-        md5.update(key.encode('utf-8'))
-        return int((md5.hexdigest()), 16) % self.__m_cap
+    def __resize(self):
+        cur: HashTable.Entry | None
+        new_cap = self.__m_cap * 2
+        new_table: list[HashTable.Entry | None] = [None] * new_cap
+        for cur in self.__m_table:
+            while cur is not None:  # Re-hash existing entries
+                index = HTHash.jenkins_hash(cur.m_key)
+                tmp, cur.m_next = cur.m_next, new_table[index]
+                new_table[index], cur = cur, tmp
+        self.__m_table = new_table
+        self.__m_cap = new_cap
 
 
-class Printer:
+class HTPrinter:
     @staticmethod
     def print_entry(entry: HashTable.Entry | None,
                     fmt: HashTable.FmtEntry) -> None:
         if fmt == HashTable.FmtEntry.NODE:
-            Printer.print_node(entry)
+            HTPrinter.print_node(entry)
         elif fmt == HashTable.FmtEntry.TREE:
-            Printer.print_tree(entry)
+            HTPrinter.print_tree(entry)
 
     @staticmethod
     def print_node(entry: HashTable.Entry | None) -> None:
@@ -164,55 +166,51 @@ class Printer:
         if entry is not None:
             indent = '│   ' * depth + '└─ '
             print(f'{indent}{repr(entry.m_key)}: {repr(entry.m_val)}')
-
             while entry.m_next is not None:
-                Printer.print_tree(entry.m_next, depth + 1)
+                HTPrinter.print_tree(entry.m_next, depth + 1)
                 entry = entry.m_next
 
     @staticmethod
-    def print_table_info(table: HashTable,
-                         entries: List[HashTable.Entry | None]) -> None:
-        buf: List[str] = list()
+    def describe(ht: HashTable, entries: list[HashTable.Entry | None]) -> None:
+        buf: list[str] = list()
         for i, entry in enumerate(entries):
-            linked_list_depth = 0
             cur = entry
+            depth = 0
             while cur is not None:
-                buf.append(
-                    f'{i}->{linked_list_depth}:\t{cur.m_key}: {cur.m_val}\n')
-                linked_list_depth += 1
+                buf.append(f'{i}->{depth}:\t{cur.m_key}: {cur.m_val}\n')
                 cur = cur.m_next
+                depth += 1
+        print(ht.__class__)
+        print(f'\tsize:{ht.size()}, capacity:{ht.capacity()}, '
+              f'is_empty:{ht.is_empty()}')
+        print('\t[\n' + '\t\t' + '\t\t'.join(
+            buf) + '\t]') if not ht.is_empty() else print('\t[]')
 
-        print(table.__class__)
-        print(
-            f'\tsize:{table.size()}, ' f'capacity:{table.capacity()}, '
-            f'is_empty:{table.is_empty()}')
-        if not table.is_empty():
-            print('\t[')
-            print('\t\t' + '\t\t'.join(buf), end='')
-            print('\t]')
-        else:
-            print('\t[]')
+
+def gen_fake_data(fake: Faker, count: int) -> list[HashTable.Entry]:
+    keys, vals = fake.words(count), fake.sentences(count)
+    return [HashTable.Entry(k, v) for k, v in zip(keys, vals)]
 
 
 def main() -> int:
-    print('Hash Table in Python\n')
+    ht_capacity = HashTable.DEFAULT_CAPACITY ** 2
+    num_entries = 32
 
-    ht = HashTable(capacity=22)
-    ht.describe()
-    keys = ['puppy', 'kitten', 'cub']
-    vals = ['doggie', 'cat', 'lion']
-    for k, v in zip(keys, vals):
-        ht.insert(key=k, val=v)
-    ht.describe()
-    for k, v in zip(keys, vals):
-        entry = ht.get(k)
-        assert (entry.m_key == k and entry.m_val == v)
-    ht.dbg_visit_all()
-    ht.clear()
+    fake = Faker()
+    ht = HashTable(capacity=ht_capacity)
+
+    fake_entries: list[HashTable.Entry] = gen_fake_data(fake, num_entries)
+    ht_entries = cycle(fake_entries)
+    for _ in range(num_entries):
+        e = next(ht_entries)
+        ht.insert(key=e.m_key, val=e.m_val)
 
     ht.insert('puppy', 'doggo')
     ht.insert('chick', 'chicken')
+
+    ht.describe()
     ht.dbg_visit_all()
+    ht.clear()
 
     return 0
 
